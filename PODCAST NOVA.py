@@ -31,16 +31,16 @@ if photo:
 # Choose a guest
 st.subheader("2. Choose your AI guest")
 
-guest = st.selectbox(
-    "Who would you like to interview?",
-    ["Albert Einstein", "Isaac Newton"]
+guest =st.text_input(
+    "Search any person or topic",
+    placeholder="Enter any name or topic..."
 )
-
 st.caption(
-    "The guest is an AI-generated educational "
-    "simulation based on historical knowledge."
+   "Search public personalities and topics. "
+    "Podcast Nova uses AI to help you explore "
+    "their work, achievements, ideas, and impact. "
+    "AI responses may contain errors."
 )
-
 # Store interview messages during the session
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -89,10 +89,14 @@ def answer_guest(guest_name, history, question_text):
         prompt = f"""
 You are an educational AI simulation of {guest_name}
 participating in a podcast interview.
-
+Search the web for relevant information when useful.
+Use current web information for recent events and facts.
+Answer questions about the person's public career,
+achievements, work, ideas, and impact.
 Be engaging, natural, accurate, and concise.
-Do not claim to be the real person or invent
-private memories or conversations.
+Never claim to be the real person or invent private
+memories, private conversations, or quotations.
+Distinguish verified facts from speculation.
 
 Previous conversation:
 {transcript}
@@ -103,10 +107,19 @@ Host's question:
 Answer as the simulated guest in 2-5 sentences.
 """
 
-        response = client.models.generate_content(
-            model="gemini-3.5-flash-lite",
-            contents=prompt
-        )
+       
+response = client.models.generate_content(
+    model="gemini-3.5-flash-lite",
+    contents=prompt,
+    config=types.GenerateContentConfig(
+        tools=[
+            types.Tool(
+                google_search=types.GoogleSearch()
+            )
+        ]
+    )
+)
+
 
         if response.text:
             return response.text
