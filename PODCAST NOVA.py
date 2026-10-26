@@ -77,7 +77,7 @@ def answer_guest(guest_name, history, question_text):
         return "Please configure your Gemini API key and try again."
 
     try:
-        from google import genai
+      from google import genai, types
 
         client = genai.Client(api_key=api_key)
 
