@@ -63,94 +63,62 @@ question = st.chat_input(
 )
 
 def answer_guest(guest_name, history, question_text):
-    api_key = os.getenv("GEMINI_API_KEY", "")
+    # Read the API key from Streamlit Secrets first.
+    try:
+        api_key = st.secrets["GEMINI_API_KEY"]
+    except Exception:
+        api_key = os.getenv("GEMINI_API_KEY", "")
 
-    # Try Gemini if an API key is configured.
-    if api_key:
-        try:
-            from google import genai
+    if not api_key:
+        st.error(
+            "Gemini API key not found. "
+            "Check your Streamlit Secrets settings."
+        )
+        return "Please configure your Gemini API key and try again."
 
-            client = genai.Client(api_key=api_key)
+    try:
+        from google import genai
 
-            transcript = "\n".join(
-                f'{m["role"]}: {m["content"]}'
-                for m in history[-8:]
-            )
+        client = genai.Client(api_key=api_key)
 
-            prompt = f"""
-You are an educational AI simulation of
-{guest_name} in a podcast interview.
+        transcript = "\n".join(
+            f'{m["role"]}: {m["content"]}'
+            for m in history[-8:]
+        )
 
-Use accurate historical and scientific knowledge.
-Never claim this is a real interview or actual
-private thoughts. Clearly distinguish established
-facts from speculation. Answer naturally and
-concisely, like a podcast guest.
+        prompt = f"""
+You are an educational AI simulation of {guest_name}
+participating in a podcast interview.
+
+Be engaging, natural, accurate, and concise.
+Do not claim to be the real person or invent
+private memories or conversations.
 
 Previous conversation:
 {transcript}
 
-Host's new question: {question_text}
+Host's question:
+{question_text}
 
 Answer as the simulated guest in 2-5 sentences.
 """
 
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt
-            )
-
-            if response.text:
-                return response.text
-
-        except Exception:
-            st.warning(
-                "AI service unavailable. Showing a "
-                "demo response instead."
-            )
-
-    # Offline demo mode: no API key required.
-    if "Einstein" in guest_name:
-        return (
-            "Welcome to this educational simulation! "
-            "One of the most important ideas in physics "
-            "is that our understanding of space and time "
-            "depends on how we measure motion. "
-            "Let's explore your question further: "
-            + question_text
+        response = client.models.generate_content(
+            model="gemini-3.8-flash",
+            contents=prompt
         )
 
-    return (
-        "Welcome to this educational simulation! "
-        "My work explored motion, forces, and gravity. "
-        "Scientific ideas become clearer when we examine "
-        "evidence and test explanations. Let's discuss: "
-        + question_text
-    )
+        if response.text:
+            return response.text
 
-if question:
-    st.session_state.messages.append({
-        "role": "user",
-        "content": question
-    })
+        return "Gemini returned an empty response. Please try again."
 
-    with st.chat_message("user"):
-        st.write(question)
+    except Exception as e:
+        st.error(
+            f"Gemini request failed: {type(e).__name__}: {e}"
+        )
+        return (
+            "Sorry, I couldn't generate an answer. "
+            "Please check the error above."
+        )
 
-    with st.chat_message("assistant"):
-        with st.spinner("Your guest is preparing an answer..."):
-            answer = answer_guest(
-                guest,
-                st.session_state.messages[:-1],
-                question
-            )
-        st.write(answer)
-
-    st.session_state.messages.append({
-        "role": "assistant",
-        "content": answer
-    })
-
-if st.button("Start a new interview"):
-    st.session_state.messages = []
-    st.rerun()
