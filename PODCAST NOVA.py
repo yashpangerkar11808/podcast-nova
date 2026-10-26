@@ -1,270 +1,188 @@
 
 import os
 import streamlit as st
-from google import genai, types
+from google import genai
 
-# ----------------------------------
-# PAGE SETTINGS
-# ----------------------------------
-
+# ---------------- PAGE SETTINGS ----------------
 st.set_page_config(
     page_title="Podcast Nova",
     page_icon="🎙️",
-    layout="centered"
+    layout="wide"
 )
 
+# ---------------- API KEY ----------------
+try:
+    API_KEY = st.secrets["GEMINI_API_KEY"]
+except Exception:
+    API_KEY = os.getenv("GEMINI_API_KEY")
+
+# ---------------- DESIGN ----------------
 st.title("🎙️ Podcast Nova")
-st.subheader("Mini Search + AI Podcast Studio")
-st.caption(
-    "Explore public personalities, discover information, "
-    "and learn from ideas that can change your life."
+st.subheader("Explore ideas. Learn from people. Discover more.")
+
+st.markdown(
+    """
+    Search for any public personality, inventor, entrepreneur,
+    historical figure, technology, or topic.
+
+    Get an AI-powered explanation with web-grounded information
+    and source links when Google Search grounding is available.
+    """
 )
 
-st.info(
-    "AI-generated educational conversations. "
-    "Not real interviews or endorsements."
-)
+st.divider()
 
-# ----------------------------------
-# HOST PHOTO
-# ----------------------------------
+# ---------------- SESSION HISTORY ----------------
+if "nova_history" not in st.session_state:
+    st.session_state.nova_history = []
 
-st.subheader("1. Become the host")
-
-photo = st.file_uploader(
-    "Upload your host photo",
-    type=["jpg", "jpeg", "png"]
-)
-
-if photo:
-    st.image(
-        photo,
-        caption="Your podcast host",
-        width=220
-    )
-
-# ----------------------------------
-# SEARCH FOR ANY PERSON OR TOPIC
-# ----------------------------------
-
-st.subheader("2. Search the world")
-
-guest = st.text_input(
-    "Enter any public personality or topic",
-    placeholder="e.g. Virat Kohli, Elon Musk, AI, space...",
-    key="guest_search"
-).strip()
-
-st.caption(
-    "Search names and topics without a fixed list. "
-    "Answers can use Google Search when relevant."
-)
-
-# Reset conversation when search target changes
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-if "last_guest" not in st.session_state:
-    st.session_state.last_guest = guest
-
-if st.session_state.last_guest != guest:
-    st.session_state.messages = []
-    st.session_state.last_guest = guest
-
-# ----------------------------------
-# GEMINI + GOOGLE SEARCH
-# ----------------------------------
-
-def answer_guest(guest_name, history, question_text):
-    # Get API key from Streamlit Secrets or environment
-    try:
-        api_key = st.secrets["GEMINI_API_KEY"]
-    except Exception:
-        api_key = os.getenv("GEMINI_API_KEY", "")
-
-    if not api_key:
-        return (
-            "Gemini API key not found. "
-            "Check Streamlit Secrets."
-        ), []
-
-    try:
-        client = genai.Client(api_key=api_key)
-
-        transcript = "\n".join(
-            f'{m["role"]}: {m["content"]}'
-            for m in history[-8:]
+# ---------------- SEARCH FUNCTION ----------------
+def research_topic(topic):
+    if not API_KEY:
+        st.error(
+            "API key not found. Add GEMINI_API_KEY "
+            "in your Streamlit app's Secrets settings."
         )
+        return
+
+    try:
+        client = genai.Client(api_key=API_KEY)
 
         prompt = f"""
-You are Podcast Nova, an AI research assistant and
-educational podcast conversation partner.
+You are Podcast Nova, a helpful research and learning assistant.
 
-The user is exploring this person or topic:
-{guest_name}
+Research the following topic: {topic}
 
-Use Google Search for relevant current information,
-especially for recent news, achievements, records,
-events, and facts that may have changed.
+Instructions:
+- Explain the topic clearly and accurately.
+- Use headings and bullet points where useful.
+- For a person, cover background, achievements, ideas,
+  challenges, and lessons people can learn.
+- For other topics, explain the meaning, important facts,
+  practical applications, and key takeaways.
+- Use current information when available through web search.
+- Do not invent facts, quotations, or sources.
+- Distinguish verified facts from uncertainty.
+- Do not pretend to be the real person being discussed.
 
-Answer the user's question using reliable information.
-Clearly distinguish verified facts from uncertainty.
-Never invent sources, quotations, private memories,
-or private opinions. Do not claim to be the real person
-or imply that they endorse this app.
-
-If the subject is a public personality, explain their
-public work, career, achievements, ideas, and impact.
-If the subject is another topic, answer that topic directly.
-
-Be engaging, useful to young people, and concise.
-Use 2-6 sentences unless more detail is necessary.
-If the answer cannot be verified, say so.
-
-Previous conversation:
-{transcript}
-
-User's question:
-{question_text}
+Finish with a short section titled "Key Takeaways".
 """
 
-        response = client.models.generate_content(
-            model="gemini-3.5-flash-lite",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                tools=[
-                    types.Tool(
-                        google_search=types.GoogleSearch()
-                    )
-                ]
+        with st.spinner("🔎 Researching your topic..."):
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt,
+                config={
+                    "tools": [
+                        {"google_search": {}}
+                    ]
+                }
             )
-        )
 
-        answer = response.text or (
-            "No answer was returned. Please try again."
-        )
+        answer = response.text or "No answer was returned. Please try again."
 
-        # Extract available Google Search source links
         sources = []
         candidates = getattr(response, "candidates", None) or []
 
-        for candidate in candidates:
+        if candidates:
             metadata = getattr(
-                candidate, "grounding_metadata", None
+                candidates[0], "grounding_metadata", None
             )
-
-            if not metadata:
-                continue
 
             chunks = getattr(
                 metadata, "grounding_chunks", None
             ) or []
 
             for chunk in chunks:
-                web_source = getattr(chunk, "web", None)
+                web_info = getattr(chunk, "web", None)
 
-                if not web_source:
-                    continue
+                if web_info:
+                    title = getattr(web_info, "title", None)
+                    uri = getattr(web_info, "uri", None)
 
-                uri = getattr(web_source, "uri", None)
-                title_text = getattr(
-                    web_source, "title", None
-                ) or "Web source"
-
-                if uri and uri.startswith(("https://", "http://")):
-                    if not any(s["url"] == uri for s in sources):
+                    if uri and uri.startswith(("https://", "http://")):
                         sources.append({
-                            "title": title_text,
+                            "title": title or uri,
                             "url": uri
                         })
 
-        return answer, sources
+        # Remove duplicate source URLs
+        unique_sources = []
+        seen_urls = set()
 
-    except Exception as e:
+        for source in sources:
+            if source["url"] not in seen_urls:
+                seen_urls.add(source["url"])
+                unique_sources.append(source)
+
+        st.session_state.nova_history.insert(
+            0,
+            {
+                "topic": topic,
+                "answer": answer,
+                "sources": unique_sources
+            }
+        )
+
+    except Exception as error:
         st.error(
-            f"Gemini request failed: {type(e).__name__}: {e}"
+            "The research request failed. Check your API key, "
+            "Gemini API access, model availability, and package version."
         )
-        return (
-            "Sorry, I couldn't generate an answer. "
-            "Please try again or check the API configuration."
-        ), []
+        with st.expander("Technical error details"):
+            st.code(str(error))
 
-# ----------------------------------
-# DISPLAY CHAT HISTORY
-# ----------------------------------
 
-st.subheader("3. Ask anything")
+# ---------------- SEARCH BOX ----------------
+with st.form("nova_search_form"):
+    topic = st.text_input(
+        "What do you want to explore?",
+        placeholder="Try: Elon Musk, A. P. J. Abdul Kalam, AI, space..."
+    )
 
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.write(message["content"])
+    submitted = st.form_submit_button(
+        "🔍 Research Topic",
+        use_container_width=True
+    )
 
-        if message.get("sources"):
-            st.markdown("**Sources**")
-            for source in message["sources"]:
-                st.markdown(
-                    f"- [{source['title']}]({source['url']})"
-                )
-
-# ----------------------------------
-# PROCESS QUESTION
-# ----------------------------------
-
-question = st.chat_input(
-    "Ask a question about your search..."
-)
-
-if question:
-    if not guest:
-        st.warning(
-            "Enter a person or topic in the search box first."
-        )
+if submitted:
+    if topic.strip():
+        research_topic(topic.strip())
     else:
-        user_message = {
-            "role": "user",
-            "content": question
-        }
+        st.warning("Please enter a person or topic first.")
 
-        st.session_state.messages.append(user_message)
+# ---------------- RESULTS ----------------
+if st.session_state.nova_history:
+    st.divider()
+    st.header("📚 Your Research")
 
-        with st.chat_message("user"):
-            st.write(question)
+    for index, item in enumerate(st.session_state.nova_history):
+        with st.expander(
+            f"📖 {item['topic']}",
+            expanded=(index == 0)
+        ):
+            st.markdown(item["answer"])
 
-        with st.chat_message("assistant"):
-            with st.spinner(
-                "Searching and preparing your answer..."
-            ):
-                answer, sources = answer_guest(
-                    guest,
-                    st.session_state.messages[:-1],
-                    question
-                )
+            if item["sources"]:
+                st.subheader("🔗 Web Sources")
 
-            st.write(answer)
-
-            if sources:
-                st.markdown("**Sources**")
-                for source in sources:
+                for source in item["sources"]:
                     st.markdown(
                         f"- [{source['title']}]({source['url']})"
                     )
+            else:
+                st.caption(
+                    "No source links were returned for this response. "
+                    "Verify important claims independently."
+                )
 
-        st.session_state.messages.append({
-            "role": "assistant",
-            "content": answer,
-            "sources": sources
-        })
+    if st.button("🗑️ Clear Research History"):
+        st.session_state.nova_history = []
+        st.rerun()
 
-# ----------------------------------
-# NEW INTERVIEW
-# ----------------------------------
-
-if st.button("Start a new interview"):
-    st.session_state.messages = []
-    st.rerun()
-
+# ---------------- FOOTER ----------------
 st.divider()
 st.caption(
-    "Podcast Nova | Search. Learn. Grow. "
-    "AI-powered educational conversations."
+    "Podcast Nova • AI-assisted learning and research. "
+    "Always verify important information with reliable sources."
 )
