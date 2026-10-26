@@ -122,3 +122,34 @@ Answer as the simulated guest in 2-5 sentences.
             "Please check the error above."
         )
 
+
+# Process the submitted question
+if question:
+    st.success("Your question was submitted!")
+
+    st.session_state.messages.append({
+        "role": "user",
+        "content": question
+    })
+
+    with st.chat_message("user"):
+        st.write(question)
+
+    with st.chat_message("assistant"):
+        with st.spinner("Your guest is preparing an answer..."):
+            answer = answer_guest(
+                guest,
+                st.session_state.messages[:-1],
+                question
+            )
+
+        st.write(answer)
+
+    st.session_state.messages.append({
+        "role": "assistant",
+        "content": answer
+    })
+
+if st.button("Start a new interview"):
+    st.session_state.messages = []
+    st.rerun()
