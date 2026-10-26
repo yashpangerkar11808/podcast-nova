@@ -1,6 +1,11 @@
 
 import os
 import streamlit as st
+from google import genai, types
+
+# ----------------------------------
+# PAGE SETTINGS
+# ----------------------------------
 
 st.set_page_config(
     page_title="Podcast Nova",
@@ -9,39 +14,53 @@ st.set_page_config(
 )
 
 st.title("🎙️ Podcast Nova")
-st.caption("Your AI Podcast Studio — educational simulations")
-
-st.info(
-    "AI-generated conversations are simulations, "
-    "not real interviews or recordings."
+st.subheader("Mini Search + AI Podcast Studio")
+st.caption(
+    "Explore public personalities, discover information, "
+    "and learn from ideas that can change your life."
 )
 
-# Upload the host's photograph
+st.info(
+    "AI-generated educational conversations. "
+    "Not real interviews or endorsements."
+)
+
+# ----------------------------------
+# HOST PHOTO
+# ----------------------------------
+
 st.subheader("1. Become the host")
 
 photo = st.file_uploader(
-    "Upload your photo",
+    "Upload your host photo",
     type=["jpg", "jpeg", "png"]
 )
 
 if photo:
-    st.image(photo, caption="Your podcast host",
-             width=220)
+    st.image(
+        photo,
+        caption="Your podcast host",
+        width=220
+    )
 
-# Choose a guest
-st.subheader("2. Choose your AI guest")
+# ----------------------------------
+# SEARCH FOR ANY PERSON OR TOPIC
+# ----------------------------------
 
-guest =st.text_input(
-    "Search any person or topic",
-    placeholder="Enter any name or topic..."
-)
+st.subheader("2. Search the world")
+
+guest = st.text_input(
+    "Enter any public personality or topic",
+    placeholder="e.g. Virat Kohli, Elon Musk, AI, space...",
+    key="guest_search"
+).strip()
+
 st.caption(
-   "Search public personalities and topics. "
-    "Podcast Nova uses AI to help you explore "
-    "their work, achievements, ideas, and impact. "
-    "AI responses may contain errors."
+    "Search names and topics without a fixed list. "
+    "Answers can use Google Search when relevant."
 )
-# Store interview messages during the session
+
+# Reset conversation when search target changes
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -52,33 +71,24 @@ if st.session_state.last_guest != guest:
     st.session_state.messages = []
     st.session_state.last_guest = guest
 
-st.subheader("3. Start your interview")
-
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.write(message["content"])
-
-question = st.chat_input(
-    "Ask your guest a question..."
-)
+# ----------------------------------
+# GEMINI + GOOGLE SEARCH
+# ----------------------------------
 
 def answer_guest(guest_name, history, question_text):
-    # Read the API key from Streamlit Secrets first.
+    # Get API key from Streamlit Secrets or environment
     try:
         api_key = st.secrets["GEMINI_API_KEY"]
     except Exception:
         api_key = os.getenv("GEMINI_API_KEY", "")
 
     if not api_key:
-        st.error(
+        return (
             "Gemini API key not found. "
-            "Check your Streamlit Secrets settings."
-        )
-        return "Please configure your Gemini API key and try again."
+            "Check Streamlit Secrets."
+        ), []
 
     try:
-      from google import genai, types
-
         client = genai.Client(api_key=api_key)
 
         transcript = "\n".join(
@@ -87,44 +97,88 @@ def answer_guest(guest_name, history, question_text):
         )
 
         prompt = f"""
-You are an educational AI simulation of {guest_name}
-participating in a podcast interview.
-Search the web for relevant information when useful.
-Use current web information for recent events and facts.
-Answer questions about the person's public career,
-achievements, work, ideas, and impact.
-Be engaging, natural, accurate, and concise.
-Never claim to be the real person or invent private
-memories, private conversations, or quotations.
-Distinguish verified facts from speculation.
+You are Podcast Nova, an AI research assistant and
+educational podcast conversation partner.
+
+The user is exploring this person or topic:
+{guest_name}
+
+Use Google Search for relevant current information,
+especially for recent news, achievements, records,
+events, and facts that may have changed.
+
+Answer the user's question using reliable information.
+Clearly distinguish verified facts from uncertainty.
+Never invent sources, quotations, private memories,
+or private opinions. Do not claim to be the real person
+or imply that they endorse this app.
+
+If the subject is a public personality, explain their
+public work, career, achievements, ideas, and impact.
+If the subject is another topic, answer that topic directly.
+
+Be engaging, useful to young people, and concise.
+Use 2-6 sentences unless more detail is necessary.
+If the answer cannot be verified, say so.
 
 Previous conversation:
 {transcript}
 
-Host's question:
+User's question:
 {question_text}
-
-Answer as the simulated guest in 2-5 sentences.
 """
 
-       
-response = client.models.generate_content(
-    model="gemini-3.5-flash-lite",
-    contents=prompt,
-    config=types.GenerateContentConfig(
-        tools=[
-            types.Tool(
-                google_search=types.GoogleSearch()
+        response = client.models.generate_content(
+            model="gemini-3.5-flash-lite",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                tools=[
+                    types.Tool(
+                        google_search=types.GoogleSearch()
+                    )
+                ]
             )
-        ]
-    )
-)
+        )
 
+        answer = response.text or (
+            "No answer was returned. Please try again."
+        )
 
-        if response.text:
-            return response.text
+        # Extract available Google Search source links
+        sources = []
+        candidates = getattr(response, "candidates", None) or []
 
-        return "Gemini returned an empty response. Please try again."
+        for candidate in candidates:
+            metadata = getattr(
+                candidate, "grounding_metadata", None
+            )
+
+            if not metadata:
+                continue
+
+            chunks = getattr(
+                metadata, "grounding_chunks", None
+            ) or []
+
+            for chunk in chunks:
+                web_source = getattr(chunk, "web", None)
+
+                if not web_source:
+                    continue
+
+                uri = getattr(web_source, "uri", None)
+                title_text = getattr(
+                    web_source, "title", None
+                ) or "Web source"
+
+                if uri and uri.startswith(("https://", "http://")):
+                    if not any(s["url"] == uri for s in sources):
+                        sources.append({
+                            "title": title_text,
+                            "url": uri
+                        })
+
+        return answer, sources
 
     except Exception as e:
         st.error(
@@ -132,37 +186,85 @@ response = client.models.generate_content(
         )
         return (
             "Sorry, I couldn't generate an answer. "
-            "Please check the error above."
-        )
+            "Please try again or check the API configuration."
+        ), []
 
+# ----------------------------------
+# DISPLAY CHAT HISTORY
+# ----------------------------------
 
-# Process the submitted question
+st.subheader("3. Ask anything")
+
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.write(message["content"])
+
+        if message.get("sources"):
+            st.markdown("**Sources**")
+            for source in message["sources"]:
+                st.markdown(
+                    f"- [{source['title']}]({source['url']})"
+                )
+
+# ----------------------------------
+# PROCESS QUESTION
+# ----------------------------------
+
+question = st.chat_input(
+    "Ask a question about your search..."
+)
+
 if question:
-    st.success("Your question was submitted!")
+    if not guest:
+        st.warning(
+            "Enter a person or topic in the search box first."
+        )
+    else:
+        user_message = {
+            "role": "user",
+            "content": question
+        }
 
-    st.session_state.messages.append({
-        "role": "user",
-        "content": question
-    })
+        st.session_state.messages.append(user_message)
 
-    with st.chat_message("user"):
-        st.write(question)
+        with st.chat_message("user"):
+            st.write(question)
 
-    with st.chat_message("assistant"):
-        with st.spinner("Your guest is preparing an answer..."):
-            answer = answer_guest(
-                guest,
-                st.session_state.messages[:-1],
-                question
-            )
+        with st.chat_message("assistant"):
+            with st.spinner(
+                "Searching and preparing your answer..."
+            ):
+                answer, sources = answer_guest(
+                    guest,
+                    st.session_state.messages[:-1],
+                    question
+                )
 
-        st.write(answer)
+            st.write(answer)
 
-    st.session_state.messages.append({
-        "role": "assistant",
-        "content": answer
-    })
+            if sources:
+                st.markdown("**Sources**")
+                for source in sources:
+                    st.markdown(
+                        f"- [{source['title']}]({source['url']})"
+                    )
+
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": answer,
+            "sources": sources
+        })
+
+# ----------------------------------
+# NEW INTERVIEW
+# ----------------------------------
 
 if st.button("Start a new interview"):
     st.session_state.messages = []
     st.rerun()
+
+st.divider()
+st.caption(
+    "Podcast Nova | Search. Learn. Grow. "
+    "AI-powered educational conversations."
+)
