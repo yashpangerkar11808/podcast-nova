@@ -37,6 +37,7 @@ if "nova_history" not in st.session_state:
     st.session_state.nova_history = []
 
 # ---------------- SEARCH FUNCTION ----------------
+
 def research_topic(topic):
     if not API_KEY:
         st.error(
@@ -49,64 +50,40 @@ def research_topic(topic):
         client = genai.Client(api_key=API_KEY)
 
         prompt = f"""
-You are Podcast Nova, a helpful research and learning assistant.
+        You are Podcast Nova, a helpful AI research assistant.
 
-Research the following topic: {topic}
+        Research this topic: {topic}
 
-Instructions:
-- Explain the topic clearly and accurately.
-- Use headings and bullet points where useful.
-- For a person, cover background, achievements, ideas,
-  challenges, and lessons people can learn.
-- For other topics, explain the meaning, important facts,
-  practical applications, and key takeaways.
-- Use current information when available through web search.
-- Do not invent facts, quotations, or sources.
-- Distinguish verified facts from uncertainty.
-- Do not pretend to be the real person being discussed.
+        Give a clear, accurate, easy-to-understand answer.
+        Use headings and bullet points where useful.
+        Focus on useful facts and recent information.
+        Use Google Search to verify information.
+        Never invent facts or sources.
+        """
 
-Finish with a short section titled "Key Takeaways".
-"""
-
-        with st.spinner("🔎 Researching your topic..."):
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt,
-                config={
-                    "tools": [
-                        {"google_search": {}}
-                    ]
-                }
+        with st.spinner("Podcast Nova is researching..."):
+            interaction = client.interactions.create(
+                model="gemini-3.8-flash",
+                input=prompt,
+                tools=[{"type": "google_search"}]
             )
 
-        answer = response.text or "No answer was returned. Please try again."
-
+        answer = interaction.output_text or "No answer was returned."
         sources = []
-        candidates = getattr(response, "candidates", None) or []
 
-        if candidates:
-            metadata = getattr(
-                candidates[0], "grounding_metadata", None
-            )
+        for step in interaction.steps:
+            if step.type == "model_output":
+                for block in step.content:
+                    if block.type == "text" and block.annotations:
+                        for citation in block.annotations:
+                            if citation.type == "url_citation":
+                                url = citation.url
+                                if url:
+                                    sources.append({
+                                        "title": citation.title or url,
+                                        "url": url
+                                    })
 
-            chunks = getattr(
-                metadata, "grounding_chunks", None
-            ) or []
-
-            for chunk in chunks:
-                web_info = getattr(chunk, "web", None)
-
-                if web_info:
-                    title = getattr(web_info, "title", None)
-                    uri = getattr(web_info, "uri", None)
-
-                    if uri and uri.startswith(("https://", "http://")):
-                        sources.append({
-                            "title": title or uri,
-                            "url": uri
-                        })
-
-        # Remove duplicate source URLs
         unique_sources = []
         seen_urls = set()
 
@@ -114,6 +91,9 @@ Finish with a short section titled "Key Takeaways".
             if source["url"] not in seen_urls:
                 seen_urls.add(source["url"])
                 unique_sources.append(source)
+
+        if "nova_history" not in st.session_state:
+            st.session_state.nova_history = []
 
         st.session_state.nova_history.insert(
             0,
@@ -125,12 +105,9 @@ Finish with a short section titled "Key Takeaways".
         )
 
     except Exception as error:
-        st.error(
-            "The research request failed. Check your API key, "
-            "Gemini API access, model availability, and package version."
-        )
-        with st.expander("Technical error details"):
-            st.code(str(error))
+        st.error("Podcast Nova could not complete the research.")
+        st.code(str(error))
+
 
 
 # ---------------- SEARCH BOX ----------------
