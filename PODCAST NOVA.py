@@ -25,8 +25,7 @@ st.markdown(
     Search for any public personality, inventor, entrepreneur,
     historical figure, technology, or topic.
 
-    Get an AI-powered explanation with web-grounded information
-    and source links when Google Search grounding is available.
+    Get an AI-powered explanation in simple language.
     """
 )
 
@@ -37,7 +36,6 @@ if "nova_history" not in st.session_state:
     st.session_state.nova_history = []
 
 # ---------------- SEARCH FUNCTION ----------------
-
 def research_topic(topic):
     if not API_KEY:
         st.error(
@@ -56,58 +54,32 @@ def research_topic(topic):
 
         Give a clear, accurate, easy-to-understand answer.
         Use headings and bullet points where useful.
-        Focus on useful facts and recent information.
-        Use Google Search to verify information.
-        Never invent facts or sources.
+        Explain important facts and context.
+        Be honest if you are unsure about a fact.
+        Do not invent sources or claim you searched the web.
+        Mention that recent information may need verification.
         """
 
         with st.spinner("Podcast Nova is researching..."):
             interaction = client.interactions.create(
                 model="gemini-3.8-flash",
-                input=prompt,
-                tools=[{"type": "google_search"}]
+                input=prompt
             )
 
         answer = interaction.output_text or "No answer was returned."
-        sources = []
-
-        for step in interaction.steps:
-            if step.type == "model_output":
-                for block in step.content:
-                    if block.type == "text" and block.annotations:
-                        for citation in block.annotations:
-                            if citation.type == "url_citation":
-                                url = citation.url
-                                if url:
-                                    sources.append({
-                                        "title": citation.title or url,
-                                        "url": url
-                                    })
-
-        unique_sources = []
-        seen_urls = set()
-
-        for source in sources:
-            if source["url"] not in seen_urls:
-                seen_urls.add(source["url"])
-                unique_sources.append(source)
-
-        if "nova_history" not in st.session_state:
-            st.session_state.nova_history = []
 
         st.session_state.nova_history.insert(
             0,
             {
                 "topic": topic,
                 "answer": answer,
-                "sources": unique_sources
+                "sources": []
             }
         )
 
     except Exception as error:
         st.error("Podcast Nova could not complete the research.")
         st.code(str(error))
-
 
 
 # ---------------- SEARCH BOX ----------------
@@ -140,18 +112,10 @@ if st.session_state.nova_history:
         ):
             st.markdown(item["answer"])
 
-            if item["sources"]:
-                st.subheader("🔗 Web Sources")
-
-                for source in item["sources"]:
-                    st.markdown(
-                        f"- [{source['title']}]({source['url']})"
-                    )
-            else:
-                st.caption(
-                    "No source links were returned for this response. "
-                    "Verify important claims independently."
-                )
+            st.caption(
+                "AI-generated information. Verify important facts "
+                "with reliable, up-to-date sources."
+            )
 
     if st.button("🗑️ Clear Research History"):
         st.session_state.nova_history = []
